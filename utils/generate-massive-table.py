@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
+import sys
 import random
+from signal import signal, SIGPIPE, SIG_DFL
+signal(SIGPIPE, SIG_DFL)
 
 
 LOREM = """Nullam eu ante vel est convallis dignissim Fusce suscipit wisi nec
