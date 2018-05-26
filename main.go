@@ -11,17 +11,7 @@ import (
 )
 
 func run(app *tview.Application, table *tview.Table) {
-	table.Select(0, 0).SetFixed(1, 1).SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyEscape {
-			app.Stop()
-		}
-		if key == tcell.KeyEnter {
-			table.SetSelectable(true, true)
-		}
-	}).SetSelectedFunc(func(row int, column int) {
-		table.GetCell(row, column).SetTextColor(tcell.ColorRed)
-		table.SetSelectable(false, false)
-	})
+	table.Select(0, 0).SetFixed(1, 1)
 
 	if err := app.SetRoot(table, true).SetFocus(table).Run(); err != nil {
 		panic(err)
@@ -29,7 +19,11 @@ func run(app *tview.Application, table *tview.Table) {
 }
 
 func read(app *tview.Application, table *tview.Table, file *os.File, sfull chan bool) {
+	_, _, _, height := table.GetInnerRect()
+	visibleRows := height / 2
+
 	scanner := bufio.NewScanner(file)
+
 	for j := 0; scanner.Scan(); j++ {
 		line := scanner.Text()
 		cells := strings.Split(line, "\t")
@@ -43,10 +37,10 @@ func read(app *tview.Application, table *tview.Table, file *os.File, sfull chan 
 					SetTextColor(color).
 					SetAlign(tview.AlignCenter))
 		}
-		_, _, _, height := table.GetInnerRect()
-		visibleRows := height / 2
 		if j == visibleRows*2 {
 			sfull <- true
+		} else if j > visibleRows*2 {
+			// app.Draw()
 		}
 	}
 }
