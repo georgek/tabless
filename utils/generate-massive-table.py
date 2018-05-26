@@ -27,6 +27,7 @@ def random_string(num_words=2, source=LOREM):
 
 
 def main(num_cols=10, num_rows=NUMROWS):
+
     types = [int, float, str]
     col_types = [random.choice(types) for _ in range(num_cols)]
 
@@ -45,4 +46,9 @@ def main(num_cols=10, num_rows=NUMROWS):
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) > 1:
+        num_rows = int(sys.argv[1])
+    else:
+        num_rows = NUMROWS
+
+    main(num_rows=num_rows)
