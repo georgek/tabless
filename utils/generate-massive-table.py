@@ -17,8 +17,8 @@ mollis magna orci ultrices dolor at vulputate neque nulla lacinia eros Sed
 id ligula quis est convallis tempor Curabitur lacinia pulvinar nibh Nam a
 sapien""".split()
 
-MAXINT = 10000
-NUMROWS = 1000000000
+MAXINT = 10_000
+NUMROWS = 1_000_000_000
 
 
 def random_string(num_words=2, source=LOREM):
