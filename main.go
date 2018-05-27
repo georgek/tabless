@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"flag"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -9,6 +11,8 @@ import (
 	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
 )
+
+const MaxInt = int(^uint(0)>>1)
 
 type Cell struct{
 	text string
@@ -27,7 +31,7 @@ func isNumeric(s string) bool {
 // then more of the file is read until the table has that size, or the end of
 // the file is reached. The number of lines actually read so far is put back
 // into the channel in response to every input on the channel.
-func read(file *os.File, draw_ch chan int, cell_ch chan *Cell) {
+func read(file *os.File, delimiter string, draw_ch chan int, cell_ch chan *Cell) {
 
 	file_open := true
 	scanner := bufio.NewScanner(file)
@@ -46,7 +50,7 @@ func read(file *os.File, draw_ch chan int, cell_ch chan *Cell) {
 		}
 		for ; scanner.Scan() && j < requested; j++ {
 			line := scanner.Text()
-			texts := strings.Split(line, "\t")
+			texts := strings.Split(line, delimiter)
 			for i, text := range texts {
 				cell := new(Cell)
 				cell.text, cell.i, cell.j = text, i, j
@@ -88,7 +92,32 @@ func add_cells(table *tview.Table, cell_ch chan *Cell, rfix, cfix int) {
 
 func main() {
 
-	const MaxInt = int(^uint(0)>>1)
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: %s [flags] [filename]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "flags:\n")
+		flag.PrintDefaults()
+	}
+
+	var delimiter = flag.String("d", "\t", "column delimiter to use")
+	flag.Parse()
+
+	var input_file *os.File
+	var err error
+	if flag.NArg() > 0 && flag.Arg(0) != "-" {
+		input_file, err = os.Open(flag.Arg(0))
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		// check if stdin is being piped
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) != 0 {
+			flag.Usage()
+			os.Exit(0)
+		} else {
+			input_file = os.Stdin
+		}
+	}
 
 	borders := true
 	cfix, rfix := 0, 1
@@ -100,7 +129,7 @@ func main() {
 	draw_ch := make(chan int)
 	// chan for new cells to be added
 	cell_ch := make(chan *Cell)
-	go read(os.Stdin, draw_ch, cell_ch)
+	go read(input_file, *delimiter, draw_ch, cell_ch)
 	go add_cells(table, cell_ch, rfix, cfix)
 
 	table.Select(0, 0).SetFixed(rfix, cfix)
@@ -146,7 +175,7 @@ func main() {
 				app.Stop()
 				return nil
 			case 'v':
-				if event.Modifiers() & tcell.ModAlt != 0 {
+				if (event.Modifiers() & tcell.ModAlt) != 0 {
 					// Alt-V
 					return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
 				} else {
