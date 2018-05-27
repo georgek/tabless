@@ -133,12 +133,25 @@ func main() {
 			draw_ch <- MaxInt
 			<-draw_ch
 			return event
+		case tcell.KeyCtrlN:
+			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+		case tcell.KeyCtrlP:
+			return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+		case tcell.KeyCtrlV:
+			return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone)
 		case tcell.KeyRune:
 			rune := event.Rune()
 			switch rune {
 			case 'q':
 				app.Stop()
 				return nil
+			case 'v':
+				if event.Modifiers() & tcell.ModAlt != 0 {
+					// Alt-V
+					return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
+				} else {
+					return event
+				}
 			default:
 				return event
 			}
