@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/gdamore/tcell"
@@ -14,6 +15,13 @@ type Cell struct{
 	i, j int
 }
 
+// isNumeric returns true if the string is considered a float by
+// strconv.ParseFloat
+func isNumeric(s string) bool {
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
+}
+
 // read gets line from file and inserts cells into cell_ch. It waits until a
 // number of rows are requested by passing an integer in the draw_req channel,
 // then more of the file is read until the table has that size, or the end of
@@ -21,14 +29,20 @@ type Cell struct{
 // into the channel in response to every input on the channel.
 func read(file *os.File, draw_ch chan int, cell_ch chan *Cell) {
 
+	file_open := true
 	scanner := bufio.NewScanner(file)
 
-	var requested int
-	j := 0
+	var requested, j int
+	j = 0
 	for {
 		requested = <-draw_ch
 		if requested == 0 {
-			return
+			file_open = false
+			file.Close()
+		}
+		if !file_open {
+			draw_ch <- j
+			continue
 		}
 		for ; scanner.Scan() && j < requested; j++ {
 			line := scanner.Text()
@@ -48,18 +62,33 @@ func add_cells(table *tview.Table, cell_ch chan *Cell, rfix, cfix int) {
 	var cell *Cell
 	for {
 		cell = <-cell_ch
+
+		alignment := tview.AlignCenter
+		expansion := 1
+		max_width := 10
 		color := tcell.ColorWhite
 		if cell.i < cfix || cell.j < rfix {
 			color = tcell.ColorYellow
+		} else if isNumeric(cell.text) {
+			alignment = tview.AlignRight
+			max_width = 20
+		} else {
+			alignment = tview.AlignLeft
+			expansion = 2
 		}
+
 		table.SetCell(cell.j, cell.i,
 			tview.NewTableCell(cell.text).
 				SetTextColor(color).
-				SetAlign(tview.AlignCenter))
+				SetAlign(alignment).
+				SetMaxWidth(max_width).
+				SetExpansion(expansion))
 	}
 }
 
 func main() {
+
+	const MaxInt = int(^uint(0)>>1)
 
 	borders := true
 	cfix, rfix := 0, 1
@@ -95,6 +124,27 @@ func main() {
 		}
 		// returning false makes the table draw
 		return false
+	})
+
+	app.SetInputCapture(func (event *tcell.EventKey) *tcell.EventKey {
+		key := event.Key()
+		switch key {
+		case tcell.KeyEnd:
+			draw_ch <- MaxInt
+			<-draw_ch
+			return event
+		case tcell.KeyRune:
+			rune := event.Rune()
+			switch rune {
+			case 'q':
+				app.Stop()
+				return nil
+			default:
+				return event
+			}
+		default:
+			return event
+		}
 	})
 
 	if err := app.Run(); err != nil {
