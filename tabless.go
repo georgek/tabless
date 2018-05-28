@@ -12,11 +12,19 @@ import (
 	"github.com/rivo/tview"
 )
 
-const MaxInt = int(^uint(0)>>1)
+const (
+	MaxInt        = int(^uint(0)>>1)
+	readAheadMult = 10
+)
+
+var (
+	delimiter = flag.String("d", "\t", "column delimiter to use")
+	borders   = flag.Bool("b", true, "display graphical borders")
+)
 
 type Cell struct{
 	text string
-	i, j int
+	col, row int
 }
 
 // isNumeric returns true if the string is considered a float by
@@ -36,8 +44,8 @@ func read(file *os.File, delimiter string, draw_ch chan int, cell_ch chan *Cell)
 	file_open := true
 	scanner := bufio.NewScanner(file)
 
-	var requested, j int
-	j = 0
+	var requested, row int
+	row = 0
 	for {
 		requested = <-draw_ch
 		if requested == 0 {
@@ -45,19 +53,26 @@ func read(file *os.File, delimiter string, draw_ch chan int, cell_ch chan *Cell)
 			file.Close()
 		}
 		if !file_open {
-			draw_ch <- j
+			draw_ch <- row
 			continue
 		}
-		for ; scanner.Scan() && j < requested; j++ {
-			line := scanner.Text()
-			texts := strings.Split(line, delimiter)
-			for i, text := range texts {
-				cell := new(Cell)
-				cell.text, cell.i, cell.j = text, i, j
-				cell_ch <- cell
+		put_rows := func(n int) {
+			for ; row < n; row++ {
+				if !scanner.Scan() {
+					break
+				}
+				line := scanner.Text()
+				texts := strings.Split(line, delimiter)
+				for col, text := range texts {
+					cell := new(Cell)
+					cell.text, cell.col, cell.row = text, col, row
+					cell_ch <- cell
+				}
 			}
 		}
-		draw_ch <- j
+		put_rows(requested)
+		draw_ch <- row
+		put_rows(requested*readAheadMult)
 	}
 }
 
@@ -71,7 +86,7 @@ func add_cells(table *tview.Table, cell_ch chan *Cell, rfix, cfix int) {
 		expansion := 1
 		max_width := 10
 		color := tcell.ColorWhite
-		if cell.i < cfix || cell.j < rfix {
+		if cell.col < cfix || cell.row < rfix {
 			color = tcell.ColorYellow
 		} else if isNumeric(cell.text) {
 			alignment = tview.AlignRight
@@ -81,7 +96,7 @@ func add_cells(table *tview.Table, cell_ch chan *Cell, rfix, cfix int) {
 			expansion = 2
 		}
 
-		table.SetCell(cell.j, cell.i,
+		table.SetCell(cell.row, cell.col,
 			tview.NewTableCell(cell.text).
 				SetTextColor(color).
 				SetAlign(alignment).
@@ -98,7 +113,6 @@ func main() {
 		flag.PrintDefaults()
 	}
 
-	var delimiter = flag.String("d", "\t", "column delimiter to use")
 	flag.Parse()
 
 	var input_file *os.File
@@ -119,11 +133,10 @@ func main() {
 		}
 	}
 
-	borders := true
 	cfix, rfix := 0, 1
 
 	app := tview.NewApplication()
-	table := tview.NewTable().SetBorders(borders)
+	table := tview.NewTable().SetBorders(*borders)
 
 	// chan to request new rows are added
 	draw_ch := make(chan int)
@@ -141,16 +154,15 @@ func main() {
 		row_offset, _ := table.GetOffset()
 		// try to read an extra screenful of rows
 		var last_row int
-		if borders {
+		if *borders {
 			last_row = row_offset + screen_height
 		} else {
 			last_row = row_offset + screen_height*2
 		}
 
-		if table.GetRowCount() < last_row {
-			draw_ch <- last_row
-			<-draw_ch
-		}
+		draw_ch <- last_row
+		<-draw_ch
+
 		// returning false makes the table draw
 		return false
 	})
