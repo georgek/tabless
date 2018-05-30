@@ -1,5 +1,7 @@
 # tabless #
 
+[![Build Status](https://travis-ci.org/georgek/tabless.svg?branch=master)](https://travis-ci.org/georgek/tabless)
+
 A command line utility like `less` but for displaying tabular data
 graphically. Like `less`, `tabless` does not need to read the entire file (or
 pipe) before it displays it, so it's quick to use when working on the command
