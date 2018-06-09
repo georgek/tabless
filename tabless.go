@@ -28,18 +28,6 @@ type Cell struct{
 	col, row int
 }
 
-type EventDone struct {
-	t time.Time
-}
-
-func (ev *EventDone) When() time.Time {
-	return ev.t
-}
-
-func NewEventDone() *EventDone {
-	return &EventDone{t: time.Now()}
-}
-
 // isNumeric returns true if the string is considered a float by
 // strconv.ParseFloat
 func isNumeric(s string) bool {
@@ -136,7 +124,7 @@ func (t *Tabless) add_rows() {
 			}
 		}
 		// send to unblock event loop for redraw
-		t.screen.PostEventWait(NewEventDone())
+		t.screen.PostEventWait(tcell.NewEventInterrupt(nil))
 		// non-blocking send to channel to enable other goroutines to
 		// block on this
 		select {
@@ -242,7 +230,7 @@ func (t *Tabless) Run() error {
 			break
 		}
 		switch event := event.(type) {
-		case *EventDone:
+		case *tcell.EventInterrupt:
 			t.Draw()
 			continue
 		case *tcell.EventKey:
