@@ -245,11 +245,6 @@ func (t *Tabless) Run() error {
 				}
 				t.Stop()
 				return nil
-			} else if event.Key() == tcell.KeyDown {
-				// stop passing down if we're already at end of table
-				// if t.table.GetRowCount()*2 - screen_height - row_offset <= 0 {
-				// 	break
-				// }
 			}
 
 			// passthrough to the table
