@@ -16,13 +16,24 @@ This uses [tcell](https://github.com/gdamore/tcell) and
 go get github.com/georgek/tabless
 ```
 
-## Usage ##
+## Example ##
 
 ``` shell
 # read from file
 tabless filename
 # read from pipe
 table_generator | tabless
+```
+
+## Usage ##
+
+``` shell
+usage: tabless [flags] [filename]
+
+flags:
+  -b    display graphical borders (default true)
+  -d string
+        column delimiter to use (default "\t")
 ```
 
 ## Utilities ##
@@ -34,10 +45,6 @@ careful.
 ``` shell
 # generate 10000 rows
 python utils/generate-massive-table.py 10000 | tabless
+# simulate slow pipe (10 rows per second)
+python utils/generate-massive-table.py 0.1 10000 | tabless
 ```
-
-## Issues ##
-
-When using the `PgDn` key `tabless` will attempt to read until the end of the
-file. There is currently no way to abort this action so huge files or infinite
-pipes will cause a hang.
