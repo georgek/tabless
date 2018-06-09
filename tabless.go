@@ -50,75 +50,274 @@ func isNumeric(s string) bool {
 	return err == nil
 }
 
-// read gets line from file and inserts cells into cell_ch. It waits until a
-// number of rows are requested by passing an integer in the draw_req channel,
-// then more of the file is read until the table has that size, or the end of
-// the file is reached. The number of lines actually read so far is put back
-// into the channel in response to every input on the channel.
-func read(file *os.File, delimiter string, draw_ch chan int, cell_ch chan *Cell) {
-
-	file_open := true
-	scanner := bufio.NewScanner(file)
-
-	var requested, row int
-	row = 0
-	for {
-		requested = <-draw_ch
-		if requested == 0 {
-			file_open = false
-			file.Close()
-		}
-		if !file_open {
-			draw_ch <- row
-			continue
-		}
-		put_rows := func(n int) {
-			for ; row < n; row++ {
-				if !scanner.Scan() {
-					break
-				}
-				line := scanner.Text()
-				texts := strings.Split(line, delimiter)
-				for col, text := range texts {
-					cell := new(Cell)
-					cell.text, cell.col, cell.row = text, col, row
-					cell_ch <- cell
-				}
-			}
-		}
-		put_rows(requested)
-		draw_ch <- row
-		put_rows(requested*readAheadMult)
+func max(x int, y int) int {
+	if x > y {
+		return x
+	} else {
+		return y
 	}
 }
 
-// add_cells takes a Cell from cell_ch and adds it to the table
-func add_cells(table *tview.Table, cell_ch chan *Cell, rfix, cfix int) {
-	var cell *Cell
-	for {
-		cell = <-cell_ch
+type Tabless struct {
+	// the application's screen
+	screen tcell.Screen
 
-		alignment := tview.AlignCenter
-		expansion := 1
-		max_width := 10
-		color := tcell.ColorWhite
-		if cell.col < cfix || cell.row < rfix {
-			color = tcell.ColorYellow
-		} else if isNumeric(cell.text) {
-			alignment = tview.AlignRight
-			max_width = 20
+	// the main primitive
+	table *tview.Table
+
+	// the input file
+	file *os.File
+
+	// channel for sending rows of cells to be added to table
+	cell_ch chan []string
+
+	// channel to request more rows to be added to table
+	req_ch chan int
+
+	// channel to request redraw
+	draw_ch chan bool
+
+	// number of fixed rows and columns
+	rfix, cfix int
+
+	// table borders
+	borders bool
+
+	// records whether we have a full screen full yet
+	screenFull bool
+}
+
+func NewTabless() *Tabless {
+	return &Tabless{}
+}
+
+func (t *Tabless) read(delimiter string) {
+
+	scanner := bufio.NewScanner(t.file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		texts := strings.Split(line, delimiter)
+		t.cell_ch <- texts
+	}
+	close(t.cell_ch)
+}
+
+// add_cells takes a Cell from cell_ch and adds it to the table
+func (t *Tabless) add_rows() {
+	row, req_rows := 0, 0
+	for {
+		req_rows = max(<-t.req_ch, req_rows)
+		for row < req_rows {
+			select {
+			case new_req, more := <-t.req_ch:
+				if !more {
+					return
+				}
+				req_rows = max(new_req, req_rows)
+			case cells, more := <-t.cell_ch:
+				if !more {
+					req_rows = row
+					break
+				}
+				for col, text := range cells {
+					alignment := tview.AlignCenter
+					expansion := 1
+					max_width := 10
+					color := tcell.ColorWhite
+					if col < t.cfix || row < t.rfix {
+						color = tcell.ColorYellow
+					} else if isNumeric(text) {
+						alignment = tview.AlignRight
+						max_width = 20
+					} else {
+						alignment = tview.AlignLeft
+						expansion = 2
+					}
+
+					t.table.SetCell(row, col,
+						tview.NewTableCell(text).
+							SetTextColor(color).
+							SetAlign(alignment).
+							SetMaxWidth(max_width).
+							SetExpansion(expansion))
+				}
+				if !t.screenFull {
+					select {
+					case t.draw_ch <- true:
+						break
+					default:
+						break
+					}
+				}
+				row++
+			}
+		}
+		// send to unblock event loop for redraw
+		t.draw_ch <- true
+		t.screenFull = true
+	}
+}
+
+// convert some extra keys into standard tview.Table bindings
+func inputCapture (event *tcell.EventKey) *tcell.EventKey {
+	key := event.Key()
+	switch key {
+	case tcell.KeyCtrlN:
+		return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+	case tcell.KeyCtrlP:
+		return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+	case tcell.KeyCtrlV:
+		return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone)
+	case tcell.KeyRune:
+		rune := event.Rune()
+		if (event.Modifiers() & tcell.ModAlt) != 0 {
+			switch rune {
+			case 'v':
+				// M-v
+				return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
+			case '>':
+				// M->
+				return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
+			case '<':
+				// M-<
+				return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
+			default:
+				return event
+			}
 		} else {
-			alignment = tview.AlignLeft
-			expansion = 2
+			switch rune {
+			case 'q':
+				// app.Stop()
+				return tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone)
+			default:
+				return event
+			}
+		}
+	default:
+		return event
+	}
+}
+
+func (t *Tabless) Draw() {
+	if t.screen == nil {
+		return
+	}
+	width, height := t.screen.Size()
+	t.table.SetRect(0, 0, width, height)
+
+	t.table.Draw(t.screen)
+
+	t.screen.Show()
+}
+
+func (t *Tabless) Run() error {
+	var err error
+
+	t.req_ch = make(chan int)
+	t.cell_ch = make(chan []string)
+	t.draw_ch = make(chan bool)
+
+	t.screen, err = tcell.NewScreen()
+	if err != nil {
+		return err
+	}
+	if err = t.screen.Init(); err != nil {
+		return err
+	}
+
+	// We catch panics to clean up because they mess up the terminal.
+	defer func() {
+		if p := recover(); p != nil {
+			if t.screen != nil {
+				t.screen.Fini()
+			}
+			panic(p)
+		}
+	}()
+
+	t.table = tview.NewTable().SetBorders(t.borders)
+	t.table.Select(0, 0).SetFixed(t.rfix, t.cfix)
+	// request a screenful of rows
+	var screen_height, row_offset int
+	_, screen_height = t.screen.Size()
+	row_offset = 0
+	if t.borders {
+		t.req_ch <- row_offset + screen_height/2
+	} else {
+		t.req_ch <- row_offset + screen_height
+	}
+
+	waiting, done := false, false
+	go func() {
+		for {
+			if waiting {
+				done = true
+				waiting = false
+			}
+			t.Draw()
+			<-t.draw_ch
+		}
+	}()
+
+	// event loop
+	for {
+		if t.screen == nil {
+			break
 		}
 
-		table.SetCell(cell.row, cell.col,
-			tview.NewTableCell(cell.text).
-				SetTextColor(color).
-				SetAlign(alignment).
-				SetMaxWidth(max_width).
-				SetExpansion(expansion))
+		event := t.screen.PollEvent()
+		if event == nil {
+			break
+		}
+		switch event := event.(type) {
+		case *tcell.EventKey:
+			event = inputCapture(event)
+
+			if event.Key() == tcell.KeyEnd && !done {
+				t.req_ch <- MaxInt
+				waiting = true
+				continue
+			} else if event.Key() == tcell.KeyCtrlC {
+				if waiting {
+					waiting = false
+					done = true
+					t.file.Close()
+					continue
+				}
+				t.Stop()
+				return nil
+			}
+
+			// passthrough to the table
+			handler := t.table.InputHandler()
+			handler(event, func(p tview.Primitive) {})
+
+		case *tcell.EventResize:
+			t.screen.Clear()
+			t.Draw()
+			_, screen_height = t.screen.Size()
+		}
+
+		row_offset, _ = t.table.GetOffset()
+		if t.borders {
+			t.req_ch <- row_offset + screen_height/2
+		} else {
+			t.req_ch <- row_offset + screen_height
+		}
+		t.draw_ch <- true
 	}
+
+	return nil
+}
+
+func (t *Tabless) Stop() {
+	if t.screen == nil {
+		return
+	}
+	close(t.req_ch)
+	t.screen.Fini()
+	t.screen = nil
 }
 
 func main() {
@@ -131,10 +330,11 @@ func main() {
 
 	flag.Parse()
 
-	var input_file *os.File
+	tabless := NewTabless()
+
 	var err error
 	if flag.NArg() > 0 && flag.Arg(0) != "-" {
-		input_file, err = os.Open(flag.Arg(0))
+		tabless.file, err = os.Open(flag.Arg(0))
 		if err != nil {
 			panic(err)
 		}
@@ -145,79 +345,19 @@ func main() {
 			flag.Usage()
 			os.Exit(0)
 		} else {
-			input_file = os.Stdin
+			tabless.file = os.Stdin
 		}
 	}
 
 	cfix, rfix := 0, 1
 
-	app := tview.NewApplication()
-	table := tview.NewTable().SetBorders(*borders)
+	tabless.cfix, tabless.rfix = cfix, rfix
+	tabless.borders = *borders
 
-	// chan to request new rows are added
-	draw_ch := make(chan int)
-	// chan for new cells to be added
-	cell_ch := make(chan *Cell)
-	go read(input_file, *delimiter, draw_ch, cell_ch)
-	go add_cells(table, cell_ch, rfix, cfix)
+	go tabless.read(*delimiter)
+	go tabless.add_rows()
 
-	table.Select(0, 0).SetFixed(rfix, cfix)
-	app.SetRoot(table, true).SetFocus(table)
-
-	// before drawing make sure enough rows have been added to the table
-	app.SetBeforeDrawFunc(func (screen tcell.Screen) bool {
-		_, screen_height := screen.Size()
-		row_offset, _ := table.GetOffset()
-		// try to read an extra screenful of rows
-		var last_row int
-		if *borders {
-			last_row = row_offset + screen_height
-		} else {
-			last_row = row_offset + screen_height*2
-		}
-
-		draw_ch <- last_row
-		<-draw_ch
-
-		// returning false makes the table draw
-		return false
-	})
-
-	app.SetInputCapture(func (event *tcell.EventKey) *tcell.EventKey {
-		key := event.Key()
-		switch key {
-		case tcell.KeyEnd:
-			draw_ch <- MaxInt
-			<-draw_ch
-			return event
-		case tcell.KeyCtrlN:
-			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
-		case tcell.KeyCtrlP:
-			return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
-		case tcell.KeyCtrlV:
-			return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone)
-		case tcell.KeyRune:
-			rune := event.Rune()
-			switch rune {
-			case 'q':
-				app.Stop()
-				return nil
-			case 'v':
-				if (event.Modifiers() & tcell.ModAlt) != 0 {
-					// Alt-V
-					return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
-				} else {
-					return event
-				}
-			default:
-				return event
-			}
-		default:
-			return event
-		}
-	})
-
-	if err := app.Run(); err != nil {
+	if err := tabless.Run(); err != nil {
 		panic(err)
 	}
 }
