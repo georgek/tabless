@@ -147,19 +147,28 @@ func inputCapture (event *tcell.EventKey) *tcell.EventKey {
 		return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone)
 	case tcell.KeyRune:
 		rune := event.Rune()
-		switch rune {
-		case 'q':
-			// app.Stop()
-			return tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone)
-		case 'v':
-			if (event.Modifiers() & tcell.ModAlt) != 0 {
-				// Alt-V
+		if (event.Modifiers() & tcell.ModAlt) != 0 {
+			switch rune {
+			case 'v':
+				// M-v
 				return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
-			} else {
+			case '>':
+				// M->
+				return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
+			case '<':
+				// M-<
+				return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
+			default:
 				return event
 			}
-		default:
-			return event
+		} else {
+			switch rune {
+			case 'q':
+				// app.Stop()
+				return tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone)
+			default:
+				return event
+			}
 		}
 	default:
 		return event
