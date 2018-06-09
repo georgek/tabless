@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
@@ -43,6 +45,7 @@ func max(x int, y int) int {
 }
 
 type Tabless struct {
+	sync.RWMutex
 	// the application's screen
 	screen tcell.Screen
 
@@ -223,7 +226,15 @@ func (t *Tabless) Run() error {
 		t.draw_ch <- row_offset + screen_height
 	}
 
-	t.Draw()
+	tick := time.Tick(10 * time.Millisecond)
+	go func() {
+		for{
+			t.Lock()
+			t.Draw()
+			t.Unlock()
+			<-tick
+		}
+	}()
 
 	// event loop
 	waiting := false
@@ -239,7 +250,9 @@ func (t *Tabless) Run() error {
 		switch event := event.(type) {
 		case *tcell.EventInterrupt:
 			waiting = false
+			t.Lock()
 			t.Draw()
+			t.Unlock()
 			continue
 		case *tcell.EventKey:
 			event = inputCapture(event)
@@ -261,8 +274,10 @@ func (t *Tabless) Run() error {
 			handler(event, func(p tview.Primitive) {})
 
 		case *tcell.EventResize:
+			t.Lock()
 			t.screen.Clear()
 			t.Draw()
+			t.Unlock()
 			_, screen_height = t.screen.Size()
 		}
 
