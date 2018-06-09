@@ -49,6 +49,9 @@ type Tabless struct {
 	// the main primitive
 	table *tview.Table
 
+	// the input file
+	file *os.File
+
 	// channel for sending rows of cells to be added to table
 	cell_ch chan []string
 
@@ -66,9 +69,9 @@ func NewTabless() *Tabless {
 	return &Tabless{}
 }
 
-func (t *Tabless) read(file *os.File, delimiter string) {
+func (t *Tabless) read(delimiter string) {
 
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(t.file)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -205,6 +208,7 @@ func (t *Tabless) Run() error {
 	}
 
 	// event loop
+	waiting := false
 	for {
 		if t.screen == nil {
 			break
@@ -216,6 +220,7 @@ func (t *Tabless) Run() error {
 		}
 		switch event := event.(type) {
 		case *tcell.EventInterrupt:
+			waiting = false
 			t.Draw()
 			continue
 		case *tcell.EventKey:
@@ -223,7 +228,12 @@ func (t *Tabless) Run() error {
 
 			if event.Key() == tcell.KeyEnd {
 				t.draw_ch <- MaxInt
+				waiting = true
 			} else if event.Key() == tcell.KeyCtrlC {
+				if waiting {
+					t.file.Close()
+					continue
+				}
 				t.Stop()
 				return nil
 			}
@@ -267,10 +277,11 @@ func main() {
 
 	flag.Parse()
 
-	var input_file *os.File
+	tabless := NewTabless()
+
 	var err error
 	if flag.NArg() > 0 && flag.Arg(0) != "-" {
-		input_file, err = os.Open(flag.Arg(0))
+		tabless.file, err = os.Open(flag.Arg(0))
 		if err != nil {
 			panic(err)
 		}
@@ -281,17 +292,16 @@ func main() {
 			flag.Usage()
 			os.Exit(0)
 		} else {
-			input_file = os.Stdin
+			tabless.file = os.Stdin
 		}
 	}
 
 	cfix, rfix := 0, 1
 
-	tabless := NewTabless()
 	tabless.cfix, tabless.rfix = cfix, rfix
 	tabless.borders = *borders
 
-	go tabless.read(input_file, *delimiter)
+	go tabless.read(*delimiter)
 	go tabless.add_rows()
 
 	if err := tabless.Run(); err != nil {
