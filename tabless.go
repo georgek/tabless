@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	MaxInt        = int(^uint(0)>>1)
+	maxInt        = int(^uint(0)>>1)
 	readAheadMult = 10
 )
 
@@ -37,11 +37,6 @@ var (
 	delimiter = flag.String("d", "\t", "column delimiter to use")
 	borders   = flag.Bool("b", true, "display graphical borders")
 )
-
-type Cell struct{
-	text string
-	col, row int
-}
 
 // isNumeric returns true if the string is considered a float by
 // strconv.ParseFloat
@@ -53,12 +48,11 @@ func isNumeric(s string) bool {
 func max(x int, y int) int {
 	if x > y {
 		return x
-	} else {
-		return y
 	}
+	return y
 }
 
-type Tabless struct {
+type tabless struct {
 	// the application's screen
 	screen tcell.Screen
 
@@ -69,13 +63,13 @@ type Tabless struct {
 	file *os.File
 
 	// channel for sending rows of cells to be added to table
-	cell_ch chan []string
+	cellCh chan []string
 
 	// channel to request more rows to be added to table
-	req_ch chan int
+	reqCh chan int
 
 	// channel to request redraw
-	draw_ch chan bool
+	drawCh chan bool
 
 	// number of fixed rows and columns
 	rfix, cfix int
@@ -87,49 +81,49 @@ type Tabless struct {
 	screenFull bool
 }
 
-func NewTabless() *Tabless {
-	return &Tabless{}
+func newTabless() *tabless {
+	return &tabless{}
 }
 
-func (t *Tabless) read(delimiter string) {
+func (t *tabless) read(delimiter string) {
 
 	scanner := bufio.NewScanner(t.file)
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		texts := strings.Split(line, delimiter)
-		t.cell_ch <- texts
+		t.cellCh <- texts
 	}
-	close(t.cell_ch)
+	close(t.cellCh)
 }
 
-// add_cells takes a Cell from cell_ch and adds it to the table
-func (t *Tabless) add_rows() {
-	row, req_rows := 0, 0
+// add_cells takes a Cell from cellCh and adds it to the table
+func (t *tabless) addRows() {
+	row, reqRows := 0, 0
 	for {
-		req_rows = max(<-t.req_ch, req_rows)
-		for row < req_rows {
+		reqRows = max(<-t.reqCh, reqRows)
+		for row < reqRows {
 			select {
-			case new_req, more := <-t.req_ch:
+			case newReq, more := <-t.reqCh:
 				if !more {
 					return
 				}
-				req_rows = max(new_req, req_rows)
-			case cells, more := <-t.cell_ch:
+				reqRows = max(newReq, reqRows)
+			case cells, more := <-t.cellCh:
 				if !more {
-					req_rows = row
+					reqRows = row
 					break
 				}
 				for col, text := range cells {
 					alignment := tview.AlignCenter
 					expansion := 1
-					max_width := 10
+					maxWidth := 10
 					color := tcell.ColorWhite
 					if col < t.cfix || row < t.rfix {
 						color = tcell.ColorYellow
 					} else if isNumeric(text) {
 						alignment = tview.AlignRight
-						max_width = 20
+						maxWidth = 20
 					} else {
 						alignment = tview.AlignLeft
 						expansion = 2
@@ -139,12 +133,12 @@ func (t *Tabless) add_rows() {
 						tview.NewTableCell(text).
 							SetTextColor(color).
 							SetAlign(alignment).
-							SetMaxWidth(max_width).
+							SetMaxWidth(maxWidth).
 							SetExpansion(expansion))
 				}
 				if !t.screenFull {
 					select {
-					case t.draw_ch <- true:
+					case t.drawCh <- true:
 						break
 					default:
 						break
@@ -154,7 +148,7 @@ func (t *Tabless) add_rows() {
 			}
 		}
 		// send to unblock event loop for redraw
-		t.draw_ch <- true
+		t.drawCh <- true
 		t.screenFull = true
 	}
 }
@@ -199,7 +193,7 @@ func inputCapture (event *tcell.EventKey) *tcell.EventKey {
 	}
 }
 
-func (t *Tabless) Draw() {
+func (t *tabless) Draw() {
 	if t.screen == nil {
 		return
 	}
@@ -211,12 +205,12 @@ func (t *Tabless) Draw() {
 	t.screen.Show()
 }
 
-func (t *Tabless) Run() error {
+func (t *tabless) Run() error {
 	var err error
 
-	t.req_ch = make(chan int)
-	t.cell_ch = make(chan []string)
-	t.draw_ch = make(chan bool)
+	t.reqCh = make(chan int)
+	t.cellCh = make(chan []string)
+	t.drawCh = make(chan bool)
 
 	t.screen, err = tcell.NewScreen()
 	if err != nil {
@@ -239,13 +233,13 @@ func (t *Tabless) Run() error {
 	t.table = tview.NewTable().SetBorders(t.borders)
 	t.table.Select(0, 0).SetFixed(t.rfix, t.cfix)
 	// request a screenful of rows
-	var screen_height, row_offset int
-	_, screen_height = t.screen.Size()
-	row_offset = 0
+	var screenHeight, rowOffset int
+	_, screenHeight = t.screen.Size()
+	rowOffset = 0
 	if t.borders {
-		t.req_ch <- row_offset + screen_height/2
+		t.reqCh <- rowOffset + screenHeight/2
 	} else {
-		t.req_ch <- row_offset + screen_height
+		t.reqCh <- rowOffset + screenHeight
 	}
 
 	waiting, done := false, false
@@ -256,7 +250,7 @@ func (t *Tabless) Run() error {
 				waiting = false
 			}
 			t.Draw()
-			<-t.draw_ch
+			<-t.drawCh
 		}
 	}()
 
@@ -275,7 +269,7 @@ func (t *Tabless) Run() error {
 			event = inputCapture(event)
 
 			if event.Key() == tcell.KeyEnd && !done {
-				t.req_ch <- MaxInt
+				t.reqCh <- maxInt
 				waiting = true
 				continue
 			} else if event.Key() == tcell.KeyCtrlC {
@@ -296,26 +290,26 @@ func (t *Tabless) Run() error {
 		case *tcell.EventResize:
 			t.screen.Clear()
 			t.Draw()
-			_, screen_height = t.screen.Size()
+			_, screenHeight = t.screen.Size()
 		}
 
-		row_offset, _ = t.table.GetOffset()
+		rowOffset, _ = t.table.GetOffset()
 		if t.borders {
-			t.req_ch <- row_offset + screen_height/2
+			t.reqCh <- rowOffset + screenHeight/2
 		} else {
-			t.req_ch <- row_offset + screen_height
+			t.reqCh <- rowOffset + screenHeight
 		}
-		t.draw_ch <- true
+		t.drawCh <- true
 	}
 
 	return nil
 }
 
-func (t *Tabless) Stop() {
+func (t *tabless) Stop() {
 	if t.screen == nil {
 		return
 	}
-	close(t.req_ch)
+	close(t.reqCh)
 	t.screen.Fini()
 	t.screen = nil
 }
@@ -330,7 +324,7 @@ func main() {
 
 	flag.Parse()
 
-	tabless := NewTabless()
+	tabless := newTabless()
 
 	var err error
 	if flag.NArg() > 0 && flag.Arg(0) != "-" {
@@ -355,7 +349,7 @@ func main() {
 	tabless.borders = *borders
 
 	go tabless.read(*delimiter)
-	go tabless.add_rows()
+	go tabless.addRows()
 
 	if err := tabless.Run(); err != nil {
 		panic(err)

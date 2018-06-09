@@ -3,3 +3,14 @@ language: go
 go:
   - "1.10.x"
   - master
+
+before_install:
+  - go get -u golang.org/x/lint/golint
+
+install:
+  - go get -t ./...
+
+script:
+  - go test -v ./...
+  - go vet ./...
+  - golint ./...
