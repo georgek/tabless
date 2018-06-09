@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
@@ -71,12 +70,7 @@ func (t *Tabless) read(file *os.File, delimiter string) {
 
 	scanner := bufio.NewScanner(file)
 
-	row := 0
-	for ; ; row++ {
-		if !scanner.Scan() {
-			close(t.cell_ch)
-			return
-		}
+	for scanner.Scan() {
 		line := scanner.Text()
 		texts := strings.Split(line, delimiter)
 		t.cell_ch <- texts
@@ -86,14 +80,19 @@ func (t *Tabless) read(file *os.File, delimiter string) {
 
 // add_cells takes a Cell from cell_ch and adds it to the table
 func (t *Tabless) add_rows() {
-	row, max_rows := 0, 0
+	row, req_rows := 0, 0
 	for {
-		max_rows = max(<-t.draw_ch, max_rows)
-		for row < max_rows {
+		req_rows = max(<-t.draw_ch, req_rows)
+		for row < req_rows {
 			select {
+			case new_req, more := <-t.draw_ch:
+				if !more {
+					return
+				}
+				req_rows = max(new_req, req_rows)
 			case cells, more := <-t.cell_ch:
 				if !more {
-					max_rows = row
+					req_rows = row
 					break
 				}
 				for col, text := range cells {
@@ -119,20 +118,10 @@ func (t *Tabless) add_rows() {
 							SetExpansion(expansion))
 				}
 				row++
-			case draw_req := <-t.draw_ch:
-				max_rows = max(draw_req, max_rows)
 			}
 		}
 		// send to unblock event loop for redraw
 		t.screen.PostEventWait(tcell.NewEventInterrupt(nil))
-		// non-blocking send to channel to enable other goroutines to
-		// block on this
-		select {
-		case t.draw_ch <- row:
-			break
-		default:
-			break
-		}
 	}
 }
 
@@ -214,10 +203,6 @@ func (t *Tabless) Run() error {
 	} else {
 		t.draw_ch <- row_offset + screen_height
 	}
-	// wait for screenful until first draw
-	<-t.draw_ch
-
-	t.Draw()
 
 	// event loop
 	for {
@@ -243,6 +228,7 @@ func (t *Tabless) Run() error {
 				return nil
 			}
 
+			// passthrough to the table
 			handler := t.table.InputHandler()
 			handler(event, func(p tview.Primitive) {})
 
@@ -250,6 +236,7 @@ func (t *Tabless) Run() error {
 			t.screen.Clear()
 			_, screen_height = t.screen.Size()
 		}
+
 		row_offset, _ = t.table.GetOffset()
 		if t.borders {
 			t.draw_ch <- row_offset + screen_height/2
@@ -265,6 +252,7 @@ func (t *Tabless) Stop() {
 	if t.screen == nil {
 		return
 	}
+	close(t.draw_ch)
 	t.screen.Fini()
 	t.screen = nil
 }
