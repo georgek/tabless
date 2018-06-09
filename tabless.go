@@ -63,6 +63,9 @@ type Tabless struct {
 
 	// table borders
 	borders bool
+
+	// records whether we have a full screen full yet
+	screenFull bool
 }
 
 func NewTabless() *Tabless {
@@ -120,11 +123,15 @@ func (t *Tabless) add_rows() {
 							SetMaxWidth(max_width).
 							SetExpansion(expansion))
 				}
+				if !t.screenFull {
+					t.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
 				row++
 			}
 		}
 		// send to unblock event loop for redraw
 		t.screen.PostEventWait(tcell.NewEventInterrupt(nil))
+		t.screenFull = true
 	}
 }
 
@@ -200,12 +207,14 @@ func (t *Tabless) Run() error {
 	// request a screenful of rows
 	var screen_height, row_offset int
 	_, screen_height = t.screen.Size()
-	row_offset, _ = t.table.GetOffset()
+	row_offset = 0
 	if t.borders {
 		t.draw_ch <- row_offset + screen_height/2
 	} else {
 		t.draw_ch <- row_offset + screen_height
 	}
+
+	t.Draw()
 
 	// event loop
 	waiting := false
@@ -236,6 +245,11 @@ func (t *Tabless) Run() error {
 				}
 				t.Stop()
 				return nil
+			} else if event.Key() == tcell.KeyDown {
+				// stop passing down if we're already at end of table
+				// if t.table.GetRowCount()*2 - screen_height - row_offset <= 0 {
+				// 	break
+				// }
 			}
 
 			// passthrough to the table
@@ -244,6 +258,7 @@ func (t *Tabless) Run() error {
 
 		case *tcell.EventResize:
 			t.screen.Clear()
+			t.Draw()
 			_, screen_height = t.screen.Size()
 		}
 
