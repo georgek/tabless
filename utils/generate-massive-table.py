@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import time
 import random
 from signal import signal, SIGPIPE, SIG_DFL
 signal(SIGPIPE, SIG_DFL)
@@ -26,7 +27,7 @@ def random_string(num_words=2, source=LOREM):
     return " ".join(source[pos:pos+num_words])
 
 
-def main(num_cols=10, num_rows=NUMROWS):
+def main(num_cols=10, num_rows=NUMROWS, sleep_time=None):
 
     types = [int, float, str]
     col_types = [random.choice(types) for _ in range(num_cols)]
@@ -42,7 +43,9 @@ def main(num_cols=10, num_rows=NUMROWS):
                 cells.append(random_string())
 
         row = "\t".join(cells)
-        print(row)
+        print(row, flush=True)
+        if sleep_time:
+            time.sleep(sleep_time)
 
 
 if __name__ == '__main__':
@@ -50,5 +53,9 @@ if __name__ == '__main__':
         num_rows = int(sys.argv[1])
     else:
         num_rows = NUMROWS
+    if len(sys.argv) > 2:
+        sleep_time = float(sys.argv[2])
+    else:
+        sleep_time = None
 
-    main(num_rows=num_rows)
+    main(num_rows=num_rows, sleep_time=sleep_time)
