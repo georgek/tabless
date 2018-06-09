@@ -7,8 +7,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
@@ -45,7 +43,6 @@ func max(x int, y int) int {
 }
 
 type Tabless struct {
-	sync.RWMutex
 	// the application's screen
 	screen tcell.Screen
 
@@ -59,7 +56,10 @@ type Tabless struct {
 	cell_ch chan []string
 
 	// channel to request more rows to be added to table
-	draw_ch chan int
+	req_ch chan int
+
+	// channel to request redraw
+	draw_ch chan bool
 
 	// number of fixed rows and columns
 	rfix, cfix int
@@ -91,10 +91,10 @@ func (t *Tabless) read(delimiter string) {
 func (t *Tabless) add_rows() {
 	row, req_rows := 0, 0
 	for {
-		req_rows = max(<-t.draw_ch, req_rows)
+		req_rows = max(<-t.req_ch, req_rows)
 		for row < req_rows {
 			select {
-			case new_req, more := <-t.draw_ch:
+			case new_req, more := <-t.req_ch:
 				if !more {
 					return
 				}
@@ -127,13 +127,18 @@ func (t *Tabless) add_rows() {
 							SetExpansion(expansion))
 				}
 				if !t.screenFull {
-					t.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					select {
+					case t.draw_ch <- true:
+						break
+					default:
+						break
+					}
 				}
 				row++
 			}
 		}
 		// send to unblock event loop for redraw
-		t.screen.PostEventWait(tcell.NewEventInterrupt(nil))
+		t.draw_ch <- true
 		t.screenFull = true
 	}
 }
@@ -193,8 +198,9 @@ func (t *Tabless) Draw() {
 func (t *Tabless) Run() error {
 	var err error
 
-	t.draw_ch = make(chan int)
+	t.req_ch = make(chan int)
 	t.cell_ch = make(chan []string)
+	t.draw_ch = make(chan bool)
 
 	t.screen, err = tcell.NewScreen()
 	if err != nil {
@@ -221,23 +227,24 @@ func (t *Tabless) Run() error {
 	_, screen_height = t.screen.Size()
 	row_offset = 0
 	if t.borders {
-		t.draw_ch <- row_offset + screen_height/2
+		t.req_ch <- row_offset + screen_height/2
 	} else {
-		t.draw_ch <- row_offset + screen_height
+		t.req_ch <- row_offset + screen_height
 	}
 
-	tick := time.Tick(10 * time.Millisecond)
+	waiting, done := false, false
 	go func() {
-		for{
-			t.Lock()
+		for {
+			if waiting {
+				done = true
+				waiting = false
+			}
 			t.Draw()
-			t.Unlock()
-			<-tick
+			<-t.draw_ch
 		}
 	}()
 
 	// event loop
-	waiting := false
 	for {
 		if t.screen == nil {
 			break
@@ -248,20 +255,17 @@ func (t *Tabless) Run() error {
 			break
 		}
 		switch event := event.(type) {
-		case *tcell.EventInterrupt:
-			waiting = false
-			t.Lock()
-			t.Draw()
-			t.Unlock()
-			continue
 		case *tcell.EventKey:
 			event = inputCapture(event)
 
-			if event.Key() == tcell.KeyEnd {
-				t.draw_ch <- MaxInt
+			if event.Key() == tcell.KeyEnd && !done {
+				t.req_ch <- MaxInt
 				waiting = true
+				continue
 			} else if event.Key() == tcell.KeyCtrlC {
 				if waiting {
+					waiting = false
+					done = true
 					t.file.Close()
 					continue
 				}
@@ -274,19 +278,18 @@ func (t *Tabless) Run() error {
 			handler(event, func(p tview.Primitive) {})
 
 		case *tcell.EventResize:
-			t.Lock()
 			t.screen.Clear()
 			t.Draw()
-			t.Unlock()
 			_, screen_height = t.screen.Size()
 		}
 
 		row_offset, _ = t.table.GetOffset()
 		if t.borders {
-			t.draw_ch <- row_offset + screen_height/2
+			t.req_ch <- row_offset + screen_height/2
 		} else {
-			t.draw_ch <- row_offset + screen_height
+			t.req_ch <- row_offset + screen_height
 		}
+		t.draw_ch <- true
 	}
 
 	return nil
@@ -296,7 +299,7 @@ func (t *Tabless) Stop() {
 	if t.screen == nil {
 		return
 	}
-	close(t.draw_ch)
+	close(t.req_ch)
 	t.screen.Fini()
 	t.screen = nil
 }
