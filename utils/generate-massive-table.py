@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-import sys
 import time
 import random
+import argparse
 from signal import signal, SIGPIPE, SIG_DFL
 signal(SIGPIPE, SIG_DFL)
 
@@ -19,7 +19,23 @@ id ligula quis est convallis tempor Curabitur lacinia pulvinar nibh Nam a
 sapien""".split()
 
 MAXINT = 10_000
-NUMROWS = 1_000_000_000
+DEFAULT_NUMROWS = 1_000_000_000
+DEFAULT_NUMCOLS = 10
+DEFAULT_SLEEP_TIME = 0
+DEFAULT_DELIMITER = "\t"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-r", "--num_rows", type=int,
+                        default=DEFAULT_NUMROWS)
+    parser.add_argument("-c", "--num_cols", type=int,
+                        default=DEFAULT_NUMCOLS)
+    parser.add_argument("-s", "--sleep_time", type=float,
+                        default=DEFAULT_SLEEP_TIME)
+    parser.add_argument("-d", "--delimiter", type=str,
+                        default=DEFAULT_DELIMITER)
+    return parser.parse_args()
 
 
 def random_string(num_words=2, source=LOREM):
@@ -27,7 +43,10 @@ def random_string(num_words=2, source=LOREM):
     return " ".join(source[pos:pos+num_words])
 
 
-def main(num_cols=10, num_rows=NUMROWS, sleep_time=None):
+def main(num_cols=DEFAULT_NUMCOLS,
+         num_rows=DEFAULT_NUMROWS,
+         sleep_time=DEFAULT_SLEEP_TIME,
+         delimiter=DEFAULT_DELIMITER):
 
     types = [int, float, str]
     col_types = [random.choice(types) for _ in range(num_cols)]
@@ -42,20 +61,11 @@ def main(num_cols=10, num_rows=NUMROWS, sleep_time=None):
             elif col_type is str:
                 cells.append(random_string())
 
-        row = "\t".join(cells)
+        row = delimiter.join(cells)
         print(row, flush=True)
-        if sleep_time:
-            time.sleep(sleep_time)
+        time.sleep(sleep_time)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        num_rows = int(sys.argv[1])
-    else:
-        num_rows = NUMROWS
-    if len(sys.argv) > 2:
-        sleep_time = float(sys.argv[2])
-    else:
-        sleep_time = None
-
-    main(num_rows=num_rows, sleep_time=sleep_time)
+    args = parse_args()
+    main(**vars(args))
