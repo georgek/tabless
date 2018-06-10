@@ -18,24 +18,18 @@ package main
 
 import (
 	"bufio"
-	"flag"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
+	"github.com/alexflint/go-arg"
 )
 
 const (
 	maxInt        = int(^uint(0)>>1)
 	readAheadMult = 10
-)
-
-var (
-	delimiter = flag.String("d", "\t", "column delimiter to use")
-	borders   = flag.Bool("b", true, "display graphical borders")
 )
 
 // isNumeric returns true if the string is considered a float by
@@ -249,8 +243,8 @@ func (t *tabless) Run() error {
 				done = true
 				waiting = false
 			}
-			t.Draw()
 			<-t.drawCh
+			t.Draw()
 		}
 	}()
 
@@ -316,39 +310,43 @@ func (t *tabless) Stop() {
 
 func main() {
 
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s [flags] [filename]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "flags:\n")
-		flag.PrintDefaults()
+	var args struct {
+		Delimiter string `arg:"-d" help:"Column delimiter character(s)"`
+		Borders   bool   `arg:"-b" help:"Display table with borders"`
+		Input     string `arg:"positional" help:"Input file"`
+		Cfix      int    `arg:"-c" help:"Number of columns to fix"`
+		Rfix      int    `arg:"-r" help:"Number of rows to fix"`
 	}
+	args.Delimiter = "\t"
+	args.Borders = true
+	args.Cfix = 0
+	args.Rfix = 1
 
-	flag.Parse()
+	parser := arg.MustParse(&args)
 
 	tabless := newTabless()
 
 	var err error
-	if flag.NArg() > 0 && flag.Arg(0) != "-" {
-		tabless.file, err = os.Open(flag.Arg(0))
+	if args.Input != "" && args.Input != "-" {
+		tabless.file, err = os.Open(args.Input)
 		if err != nil {
-			panic(err)
+			parser.Fail("file not found")
 		}
 	} else {
-		// check if stdin is being piped
+		// make sure stdin is being piped
 		stat, _ := os.Stdin.Stat()
 		if (stat.Mode() & os.ModeCharDevice) != 0 {
-			flag.Usage()
-			os.Exit(0)
+			parser.WriteUsage(os.Stderr)
+			os.Exit(1)
 		} else {
 			tabless.file = os.Stdin
 		}
 	}
 
-	cfix, rfix := 0, 1
+	tabless.cfix, tabless.rfix = args.Cfix, args.Rfix
+	tabless.borders = args.Borders
 
-	tabless.cfix, tabless.rfix = cfix, rfix
-	tabless.borders = *borders
-
-	go tabless.read(*delimiter)
+	go tabless.read(args.Delimiter)
 	go tabless.addRows()
 
 	if err := tabless.Run(); err != nil {
