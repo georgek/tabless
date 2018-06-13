@@ -191,8 +191,6 @@ func (t *tabless) Draw() {
 	if t.screen == nil {
 		return
 	}
-	width, height := t.screen.Size()
-	t.table.SetRect(0, 0, width, height)
 
 	t.table.Draw(t.screen)
 
@@ -226,14 +224,15 @@ func (t *tabless) Run() error {
 
 	t.table = tview.NewTable().SetBorders(t.borders)
 	t.table.Select(0, 0).SetFixed(t.rfix, t.cfix)
+	width, height := t.screen.Size()
+	t.table.SetRect(0, 0, width, height)
 	// request a screenful of rows
-	var screenHeight, rowOffset int
-	_, screenHeight = t.screen.Size()
+	var rowOffset int
 	rowOffset = 0
 	if t.borders {
-		t.reqCh <- rowOffset + screenHeight/2
+		t.reqCh <- rowOffset + height/2
 	} else {
-		t.reqCh <- rowOffset + screenHeight
+		t.reqCh <- rowOffset + height
 	}
 
 	waiting, done := false, false
@@ -284,16 +283,17 @@ func (t *tabless) Run() error {
 			handler(event, func(p tview.Primitive) {})
 
 		case *tcell.EventResize:
+			width, height = t.screen.Size()
+			t.table.SetRect(0, 0, width, height)
 			t.screen.Clear()
 			t.Draw()
-			_, screenHeight = t.screen.Size()
 		}
 
 		rowOffset, _ = t.table.GetOffset()
 		if t.borders {
-			t.reqCh <- rowOffset + screenHeight/2
+			t.reqCh <- rowOffset + height/2
 		} else {
-			t.reqCh <- rowOffset + screenHeight
+			t.reqCh <- rowOffset + height
 		}
 		t.drawCh <- true
 	}
