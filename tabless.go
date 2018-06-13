@@ -275,6 +275,8 @@ func (t *tabless) Run() error {
 				}
 				t.Stop()
 				return nil
+			} else if waiting {
+				continue
 			}
 
 			// passthrough to the table
