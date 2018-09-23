@@ -44,7 +44,7 @@ careful.
 
 ``` shell
 # generate 10000 rows
-python utils/generate-massive-table.py 10000 | tabless
+python utils/generate-massive-table.py -r 10000 | tabless
 # simulate slow pipe (10 rows per second)
-python utils/generate-massive-table.py 0.1 10000 | tabless
+python utils/generate-massive-table.py -s 0.1 -r 10000 | tabless
 ```
